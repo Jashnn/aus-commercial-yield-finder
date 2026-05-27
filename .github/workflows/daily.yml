@@ -2,8 +2,8 @@ name: Daily Property Scrape
 
 on:
   schedule:
-    # 8:00 AM AEST (UTC+10) = 22:00 UTC previous day
-    - cron: "0 22 * * *"
+    # 5:00 AM AEST (UTC+10) = 19:00 UTC previous day
+    - cron: "0 19 * * *"
   workflow_dispatch:  # Allow manual trigger from GitHub UI
 
 permissions:
