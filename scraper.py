@@ -86,31 +86,43 @@ def extract_yield(text: str) -> Optional[float]:
 async def scrape_rc_invest(page: Page) -> list[dict]:
     print("→ Layer 1: RC /invest/ (pre-filtered yield≥8%, price≤$500k)")
     await page.goto(RC_INVEST_URL, wait_until="domcontentloaded", timeout=60_000)
-    await asyncio.sleep(3)  # let JS hydrate
+    await asyncio.sleep(4)  # let JS hydrate
 
     # Scroll to trigger lazy-loading
     for _ in range(8):
         await page.evaluate("window.scrollBy(0, 900)")
         await asyncio.sleep(0.7)
-    await asyncio.sleep(2)
+    await asyncio.sleep(3)
+
+    # Diagnostics — print page title and all unique hrefs found
+    title = await page.title()
+    print(f"  Page title: {title!r}")
+
+    all_hrefs = await page.evaluate("""
+        () => [...new Set([...document.querySelectorAll('a[href]')].map(a => a.href))]
+              .filter(h => h.includes('realcommercial'))
+              .slice(0, 20)
+    """)
+    print(f"  Sample RC hrefs on page: {all_hrefs[:8]}")
 
     raw = await page.evaluate(r"""
         () => {
             const out = [];
             const seen = new Set();
             // Cast wide net: any anchor linking to a property listing
-            document.querySelectorAll(
-                'a[href*="/for-sale/property-"], a[href*="/property-"]'
-            ).forEach(a => {
-                if (!a.href.includes('realcommercial.com.au')) return;
-                if (seen.has(a.href)) return;
-                seen.add(a.href);
+            document.querySelectorAll('a[href]').forEach(a => {
+                const h = a.href || '';
+                if (!h.includes('realcommercial.com.au')) return;
+                if (!/\/(for-sale|lease|property)[-\/]/.test(h)) return;
+                if (seen.has(h)) return;
+                seen.add(h);
                 const card = a.closest('article')
                           || a.closest('[class*="result"]')
                           || a.closest('[class*="card"]')
+                          || a.closest('[class*="listing"]')
                           || a.closest('[data-testid]')
                           || a;
-                out.push({ href: a.href, text: (card.innerText || '').trim() });
+                out.push({ href: h, text: (card.innerText || '').trim() });
             });
             return out;
         }
@@ -250,8 +262,27 @@ async def scrape_cre_keyword(page: Page, label: str, url: str) -> list[dict]:
     return raw
 
 
+async def fetch_listing_detail(page: Page, url: str) -> str:
+    """Visit a CRE listing page and return its full text (max 1500 chars)."""
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+        await asyncio.sleep(2)
+        text = await page.evaluate("""
+            () => {
+                // Remove nav/footer noise
+                ['nav','footer','header','[class*="nav"]','[class*="footer"]'].forEach(sel => {
+                    document.querySelectorAll(sel).forEach(el => el.remove());
+                });
+                return (document.body.innerText || '').trim();
+            }
+        """)
+        return text[:1500]
+    except Exception as e:
+        return ""
+
+
 async def scrape_cre_all(page: Page) -> list[dict]:
-    """Run all keyword queries, deduplicate by URL."""
+    """Run all keyword queries, deduplicate by URL, then enrich with detail pages."""
     all_raw: list[dict] = []
     seen_urls: set[str] = set()
 
@@ -263,7 +294,18 @@ async def scrape_cre_all(page: Page) -> list[dict]:
                 seen_urls.add(item["url"])
                 all_raw.append(item)
 
-    print(f"  CRE unique listings to classify: {len(all_raw)}")
+    print(f"  CRE unique URLs found: {len(all_raw)} — fetching detail pages…")
+
+    # Cap at 60 listings to keep runtime reasonable (~3 min)
+    all_raw = all_raw[:60]
+    for i, item in enumerate(all_raw, 1):
+        detail = await fetch_listing_detail(page, item["url"])
+        if detail:
+            item["text"] = detail  # replace card snippet with full page text
+        if i % 10 == 0:
+            print(f"    fetched {i}/{len(all_raw)} detail pages")
+
+    print(f"  CRE listings ready for classification: {len(all_raw)}")
     return all_raw
 
 
