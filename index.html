@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Commercial Yield Finder — AU</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3a;
+      --accent: #22c55e;
+      --accent2: #3b82f6;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    header h1 span { color: var(--accent); }
+
+    #meta {
+      font-size: 12px;
+      color: var(--muted);
+      text-align: right;
+    }
+
+    #meta strong { color: var(--text); }
+
+    /* Filters */
+    #filters {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    #filters label { font-size: 12px; color: var(--muted); }
+
+    #filters select,
+    #filters input[type="range"] {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    #filters select:focus { outline: none; border-color: var(--accent2); }
+
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    #yieldDisplay { color: var(--accent); font-weight: 600; font-size: 12px; }
+
+    /* Stats bar */
+    #stats {
+      padding: 10px 24px;
+      font-size: 12px;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+
+    #stats strong { color: var(--text); }
+
+    /* Grid */
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 16px;
+      padding: 20px 24px;
+    }
+
+    /* Card */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: border-color 0.15s, transform 0.1s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card:hover {
+      border-color: var(--accent2);
+      transform: translateY(-1px);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .address {
+      font-weight: 600;
+      font-size: 14px;
+      line-height: 1.4;
+      flex: 1;
+    }
+
+    .yield-badge {
+      background: var(--accent);
+      color: #000;
+      font-weight: 700;
+      font-size: 13px;
+      padding: 3px 8px;
+      border-radius: 5px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .yield-badge.unknown {
+      background: var(--warn);
+    }
+
+    .card-pills {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .pill.price { color: var(--accent2); border-color: var(--accent2); }
+    .pill.source { color: #a78bfa; border-color: #a78bfa; }
+    .pill.layer1 { color: var(--accent); border-color: var(--accent); }
+
+    .description {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .reason {
+      font-size: 11px;
+      color: #64748b;
+      font-style: italic;
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+      line-height: 1.4;
+    }
+
+    .card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 2px;
+    }
+
+    .view-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: transparent;
+      color: var(--accent2);
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: none;
+      border: 1px solid var(--accent2);
+      border-radius: 6px;
+      padding: 5px 12px;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .view-link:hover {
+      background: var(--accent2);
+      color: #fff;
+    }
+
+    .layer-tag {
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.5px;
+    }
+
+    /* Empty state */
+    #empty {
+      display: none;
+      text-align: center;
+      padding: 80px 24px;
+      color: var(--muted);
+      grid-column: 1 / -1;
+    }
+
+    #empty h2 { font-size: 20px; margin-bottom: 8px; color: var(--text); }
+
+    /* Loading */
+    #loading {
+      text-align: center;
+      padding: 80px 24px;
+      color: var(--muted);
+      grid-column: 1 / -1;
+    }
+
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    footer {
+      text-align: center;
+      padding: 24px;
+      font-size: 11px;
+      color: #475569;
+      border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🏢 Commercial Yield Finder <span>AU</span></h1>
+  <div id="meta">
+    <div>Updated: <strong id="updatedAt">—</strong></div>
+    <div><strong id="totalCount">—</strong> qualifying listings</div>
+  </div>
+</header>
+
+<div id="filters">
+  <div class="filter-group">
+    <label>State</label>
+    <select id="stateFilter">
+      <option value="">All states</option>
+      <option>NSW</option>
+      <option>VIC</option>
+      <option>QLD</option>
+      <option>WA</option>
+      <option>SA</option>
+      <option>TAS</option>
+      <option>NT</option>
+      <option>ACT</option>
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Min yield: <span id="yieldDisplay">8%</span></label>
+    <input type="range" id="yieldFilter" min="8" max="20" step="0.5" value="8" />
+  </div>
+
+  <div class="filter-group">
+    <label>Source</label>
+    <select id="sourceFilter">
+      <option value="">All sources</option>
+      <option value="realcommercial.com.au">Real Commercial</option>
+      <option value="commercialrealestate.com.au">CRE</option>
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Sort by</label>
+    <select id="sortFilter">
+      <option value="yield">Yield (highest first)</option>
+      <option value="price">Price (lowest first)</option>
+    </select>
+  </div>
+</div>
+
+<div id="stats">
+  Showing <strong id="shownCount">—</strong> of <strong id="totalCount2">—</strong> listings
+</div>
+
+<div id="grid">
+  <div id="loading">
+    <div class="spinner"></div>
+    Loading listings…
+  </div>
+</div>
+
+<footer>
+  Data scraped daily from realcommercial.com.au and commercialrealestate.com.au.
+  Always verify independently before making any investment decision.
+  Criteria: tenanted · price ≤ $500k · yield ≥ 8% p.a.
+</footer>
+
+<script>
+  let allListings = [];
+
+  // ─── Fetch Data ──────────────────────────────────────────────────────────
+  async function loadData() {
+    try {
+      const res = await fetch('listings.json?t=' + Date.now());
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      document.getElementById('updatedAt').textContent =
+        new Date(data.updated).toLocaleString('en-AU', {
+          dateStyle: 'medium', timeStyle: 'short'
+        });
+      document.getElementById('totalCount').textContent = data.count;
+      document.getElementById('totalCount2').textContent = data.count;
+
+      allListings = data.listings || [];
+      renderGrid();
+    } catch (err) {
+      document.getElementById('loading').innerHTML =
+        `<h2>No data yet</h2><p>Run the scraper first: <code>python scraper.py</code></p>`;
+    }
+  }
+
+  // ─── Render ──────────────────────────────────────────────────────────────
+  function renderGrid() {
+    const state   = document.getElementById('stateFilter').value;
+    const minYld  = parseFloat(document.getElementById('yieldFilter').value);
+    const source  = document.getElementById('sourceFilter').value;
+    const sort    = document.getElementById('sortFilter').value;
+
+    let filtered = allListings.filter(l => {
+      if (source && !l.source.includes(source)) return false;
+      if (state && !l.address.includes(state)) return false;
+      if (l.yield_pct !== null && l.yield_pct < minYld) return false;
+      return true;
+    });
+
+    if (sort === 'yield') {
+      filtered.sort((a, b) => (b.yield_pct || 0) - (a.yield_pct || 0));
+    } else {
+      filtered.sort((a, b) => (a.price_val || 999999) - (b.price_val || 999999));
+    }
+
+    document.getElementById('shownCount').textContent = filtered.length;
+
+    const grid = document.getElementById('grid');
+    grid.innerHTML = '';
+
+    if (filtered.length === 0) {
+      grid.innerHTML = `
+        <div id="empty" style="display:block; text-align:center; padding:80px 24px; color:var(--muted); grid-column:1/-1;">
+          <h2 style="color:var(--text);margin-bottom:8px;">No listings match</h2>
+          <p>Try widening your filters.</p>
+        </div>`;
+      return;
+    }
+
+    filtered.forEach(l => {
+      const yieldStr = l.yield_pct ? `${l.yield_pct}%` : '?%';
+      const yieldClass = l.yield_pct ? '' : 'unknown';
+      const priceStr = l.price_str || 'Contact Agent';
+      const sourceShort = l.source.includes('realcommercial') ? 'Real Commercial' : 'CRE';
+      const layerLabel = l.layer === 1 ? 'Layer 1 ✓' : 'Layer 2';
+      const layerClass = l.layer === 1 ? 'layer1' : '';
+
+      // Highlight yield numbers in description
+      const descHtml = (l.description || '')
+        .replace(/(\d+(?:\.\d+)?%)/g, '<strong style="color:var(--accent)">$1</strong>')
+        .replace(/\$[\d,]+/g, m => `<strong style="color:var(--accent2)">${m}</strong>`);
+
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <div class="card-header">
+          <div class="address">${escHtml(l.address || 'Unknown address')}</div>
+          <div class="yield-badge ${yieldClass}">${yieldStr}</div>
+        </div>
+        <div class="card-pills">
+          <span class="pill price">${escHtml(priceStr)}</span>
+          <span class="pill source">${sourceShort}</span>
+          <span class="pill ${layerClass}">${layerLabel}</span>
+        </div>
+        <div class="description">${descHtml}</div>
+        ${l.reason ? `<div class="reason">${escHtml(l.reason)}</div>` : ''}
+        <div class="card-footer">
+          <span class="layer-tag">Layer ${l.layer}</span>
+          <a class="view-link" href="${escHtml(l.url)}" target="_blank" rel="noopener">
+            View listing ↗
+          </a>
+        </div>
+      `;
+      grid.appendChild(card);
+    });
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ─── Event listeners ─────────────────────────────────────────────────────
+  document.getElementById('yieldFilter').addEventListener('input', e => {
+    document.getElementById('yieldDisplay').textContent = e.target.value + '%';
+    renderGrid();
+  });
+  ['stateFilter', 'sourceFilter', 'sortFilter'].forEach(id => {
+    document.getElementById(id).addEventListener('change', renderGrid);
+  });
+
+  // ─── Init ─────────────────────────────────────────────────────────────────
+  loadData();
+</script>
+</body>
+</html>
