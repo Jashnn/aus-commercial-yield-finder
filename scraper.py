@@ -15,6 +15,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -92,12 +93,10 @@ async def scrape_rc_invest(page: Page) -> list[dict]:
         await asyncio.sleep(0.6)
     await asyncio.sleep(2)
 
-    # RC renders listing cards as <article> elements with an <a> inside
     raw = await page.evaluate(r"""
         () => {
             const out = [];
             const seen = new Set();
-            // Cast a wide net for listing anchors
             document.querySelectorAll('a[href*="/for-sale/property-"]').forEach(a => {
                 if (seen.has(a.href)) return;
                 seen.add(a.href);
@@ -164,7 +163,6 @@ async def scrape_cre_keyword(page: Page, label: str, url: str) -> list[dict]:
             break
         await asyncio.sleep(1.5)
 
-        # Check total count on first page so we know if we should bother
         if page_num == 1:
             try:
                 count_el = await page.wait_for_selector("h1", timeout=5_000)
@@ -177,7 +175,6 @@ async def scrape_cre_keyword(page: Page, label: str, url: str) -> list[dict]:
             except Exception:
                 pass
 
-        # Extract listing card anchors
         cards = await page.evaluate("""
             () => {
                 const out = [];
@@ -209,16 +206,12 @@ async def scrape_cre_keyword(page: Page, label: str, url: str) -> list[dict]:
             seen_urls.add(href)
             raw.append({"url": href, "text": text})
 
-        # Navigate to next page if exists
-        # CRE paginates via ?pg=N or a "Next" link
         next_el = await page.query_selector(
             'a[aria-label="Next page"], '
             'a[data-testid="next-page"], '
             'a[rel="next"]'
         )
         if not next_el:
-            # Also try checking if page N+1 exists via URL pattern
-            # CRE uses &pg=2, &pg=3 etc
             if "&pg=" in current_url:
                 pg_m = re.search(r"&pg=(\d+)", current_url)
                 next_pg = int(pg_m.group(1)) + 1 if pg_m else 2
@@ -226,9 +219,8 @@ async def scrape_cre_keyword(page: Page, label: str, url: str) -> list[dict]:
             else:
                 current_url = current_url + "&pg=2"
 
-            # Check if the incremented page has any results
             page_num += 1
-            if page_num > 10:  # Hard cap at 10 pages (~200 listings) per keyword
+            if page_num > 10:
                 break
             continue
 
@@ -310,7 +302,6 @@ def classify_listings(raw_listings: list[dict]) -> list[dict]:
                 }],
             )
             raw_json = resp.content[0].text.strip()
-            # Strip any accidental markdown fences
             raw_json = re.sub(r"^```(?:json)?\s*", "", raw_json)
             raw_json = re.sub(r"\s*```$", "", raw_json)
             parsed = json.loads(raw_json)
@@ -337,7 +328,7 @@ def classify_listings(raw_listings: list[dict]) -> list[dict]:
 
         # Brief pause every 20 calls to avoid rate limit bursts
         if i % 20 == 0:
-            asyncio.get_event_loop().run_until_complete(asyncio.sleep(1))
+            time.sleep(1)
 
     print(f"  Qualified: {len(qualified)}/{len(raw_listings)}  (errors: {errors})")
     return qualified
