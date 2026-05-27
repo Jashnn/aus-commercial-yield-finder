@@ -1,0 +1,18 @@
+# Credentials — never commit
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Playwright
+.playwright/
+
+# Logs
+server.log
+
+# macOS
+.DS_Store

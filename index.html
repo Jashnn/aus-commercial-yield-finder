@@ -262,6 +262,61 @@
       color: #475569;
       border-top: 1px solid var(--border);
     }
+
+    /* ─── Update Results button (localhost only) ─── */
+    #updateBtn {
+      display: none; /* shown via JS only on localhost */
+      align-items: center;
+      gap: 8px;
+      background: var(--accent);
+      color: #000;
+      font-weight: 700;
+      font-size: 13px;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 18px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+
+    #updateBtn:hover { opacity: 0.85; }
+    #updateBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    #updateBtn .btn-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(0,0,0,0.3);
+      border-top-color: #000;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+
+    #updateBtn.running .btn-spinner { display: block; }
+
+    /* ─── Scraper log panel ─── */
+    #scraperPanel {
+      display: none;
+      background: #0a0c12;
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+    }
+
+    #scraperPanel.visible { display: block; }
+
+    #scraperLog {
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 11px;
+      color: #94a3b8;
+      max-height: 160px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+
+    #scraperLog .log-done { color: var(--accent); }
+    #scraperLog .log-err  { color: var(--danger); }
+    #scraperLog .log-warn { color: var(--warn); }
   </style>
 </head>
 <body>
@@ -272,7 +327,16 @@
     <div>Updated: <strong id="updatedAt">—</strong></div>
     <div><strong id="totalCount">—</strong> qualifying listings</div>
   </div>
+  <button id="updateBtn" onclick="runScraper()">
+    <div class="btn-spinner"></div>
+    <span id="updateBtnLabel">⟳ Update Results</span>
+  </button>
 </header>
+
+<!-- Live scraper log — only shown when running -->
+<div id="scraperPanel">
+  <div id="scraperLog"></div>
+</div>
 
 <div id="filters">
   <div class="filter-group">
@@ -446,6 +510,109 @@
 
   // ─── Init ─────────────────────────────────────────────────────────────────
   loadData();
+
+  // ─── Localhost-only: Update Results ──────────────────────────────────────
+  const IS_LOCAL = window.location.hostname === 'localhost' ||
+                   window.location.hostname === '127.0.0.1';
+  const SERVER   = 'http://localhost:8765';
+
+  if (IS_LOCAL) {
+    document.getElementById('updateBtn').style.display = 'inline-flex';
+  }
+
+  let _pollTimer = null;
+
+  async function runScraper() {
+    const btn   = document.getElementById('updateBtn');
+    const label = document.getElementById('updateBtnLabel');
+    if (btn.disabled) return;
+
+    btn.disabled = true;
+    btn.classList.add('running');
+    label.textContent = 'Running…';
+
+    try {
+      await fetch(SERVER + '/run');
+    } catch(e) {
+      alert('Could not reach localhost server.\nMake sure server.py is running:\n  python3 server.py');
+      btn.disabled = false;
+      btn.classList.remove('running');
+      label.textContent = '⟳ Update Results';
+      return;
+    }
+
+    openLogPanel();
+    startPolling();
+  }
+
+  function openLogPanel() {
+    const panel = document.getElementById('scraperPanel');
+    const log   = document.getElementById('scraperLog');
+    panel.classList.add('visible');
+    log.innerHTML = '';
+  }
+
+  function startPolling() {
+    clearInterval(_pollTimer);
+    _pollTimer = setInterval(pollStatus, 2000);
+    pollStatus(); // immediate first check
+  }
+
+  let _lastLogLen = 0;
+
+  async function pollStatus() {
+    let status;
+    try {
+      const res = await fetch(SERVER + '/status');
+      status = await res.json();
+    } catch(e) {
+      return; // server not reachable yet, keep polling
+    }
+
+    // Append new log lines
+    const log = document.getElementById('scraperLog');
+    const lines = status.log || [];
+    const newLines = lines.slice(_lastLogLen);
+    _lastLogLen = lines.length;
+
+    newLines.forEach(line => {
+      const div = document.createElement('div');
+      if (line.includes('✅') || line.includes('Done')) div.className = 'log-done';
+      else if (line.includes('❌') || line.includes('Error')) div.className = 'log-err';
+      else if (line.includes('⚠')) div.className = 'log-warn';
+      div.textContent = line;
+      log.appendChild(div);
+    });
+
+    // Auto-scroll to bottom
+    log.scrollTop = log.scrollHeight;
+
+    // Scraper finished
+    if (!status.running && _lastLogLen > 0) {
+      clearInterval(_pollTimer);
+      _lastLogLen = 0;
+
+      const btn   = document.getElementById('updateBtn');
+      const label = document.getElementById('updateBtnLabel');
+      btn.disabled = false;
+      btn.classList.remove('running');
+
+      if (status.last_count !== null) {
+        label.textContent = `✓ ${status.last_count} found`;
+        setTimeout(() => { label.textContent = '⟳ Update Results'; }, 4000);
+      } else {
+        label.textContent = '⟳ Update Results';
+      }
+
+      // Reload listings without full page refresh
+      await loadData();
+
+      // Fade panel out after 8 seconds
+      setTimeout(() => {
+        document.getElementById('scraperPanel').classList.remove('visible');
+      }, 8000);
+    }
+  }
 </script>
 </body>
 </html>
