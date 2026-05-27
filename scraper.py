@@ -101,6 +101,7 @@ async def scrape_keyword_listings(
         current_url = base_url
         page_num = 1
         consecutive_empty = 0
+        max_pages = 10  # will be tightened once we know total results
 
         while page_num <= max_pages:
             print(f"    kw={label} page {page_num}")
