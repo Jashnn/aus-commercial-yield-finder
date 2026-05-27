@@ -6,7 +6,7 @@ Outputs listings.json for the GitHub Pages dashboard.
 
 Criteria:
   - Price  : under $500,000 AUD
-  - Yield  : 8%+ p.a. genuine (not developer guarantees)
+  - Yield  : 6%+ p.a. (show promising listings, user filters from dashboard)
   - Tenancy: currently leased with a real commercial tenant
   - Location: all of Australia, skipping mining towns
 """
@@ -29,14 +29,14 @@ MINING_TOWNS = {
     "kalgoorlie", "broken hill", "moranbah", "tennant creek",
     "roxby downs", "tom price", "paraburdoo", "south hedland",
     "dysart", "middlemount", "blackwater", "moura", "clermont",
-    "singleton", "muswellbrook",  # Hunter Valley coal towns
+    "singleton", "muswellbrook",
 }
 
-RC_INVEST_URL = (
-    "https://www.realcommercial.com.au/invest/"
-    "?yieldValue=8&maxPrice=500000"
-    "&yieldOnlyForUnpricedListings=false&activeSort=featured-asc"
-)
+# RC /invest/ is bot-detected (blank page). Use keyword search instead.
+RC_KEYWORD_QUERIES = [
+    ("rc_yield",  "https://www.realcommercial.com.au/for-sale/?maxPrice=500000&keywords=net+yield"),
+    ("rc_pct_pa", "https://www.realcommercial.com.au/for-sale/?maxPrice=500000&keywords=%25+pa"),
+]
 
 CRE_KEYWORD_QUERIES = [
     ("return",  "https://www.commercialrealestate.com.au/for-sale/?pr=%2C500000&os=tenanted&kw=return"),
@@ -76,265 +76,176 @@ def parse_price(text: str) -> Optional[int]:
 
 
 def extract_yield(text: str) -> Optional[float]:
-    """Pull the first percentage figure from a block of text."""
     m = re.search(r"(\d+(?:\.\d+)?)\s*%", text)
     return float(m.group(1)) if m else None
 
 
-# ─── Layer 1: RC /invest/ ────────────────────────────────────────────────────
+# ─── Generic keyword scraper (works for both RC and CRE) ─────────────────────
 
-async def scrape_rc_invest(page: Page) -> list[dict]:
-    print("→ Layer 1: RC /invest/ (pre-filtered yield≥8%, price≤$500k)")
-    await page.goto(RC_INVEST_URL, wait_until="domcontentloaded", timeout=60_000)
-    await asyncio.sleep(4)  # let JS hydrate
-
-    # Scroll to trigger lazy-loading
-    for _ in range(8):
-        await page.evaluate("window.scrollBy(0, 900)")
-        await asyncio.sleep(0.7)
-    await asyncio.sleep(3)
-
-    # Diagnostics — print page title and all unique hrefs found
-    title = await page.title()
-    print(f"  Page title: {title!r}")
-
-    all_hrefs = await page.evaluate("""
-        () => [...new Set([...document.querySelectorAll('a[href]')].map(a => a.href))]
-              .filter(h => h.includes('realcommercial'))
-              .slice(0, 20)
-    """)
-    print(f"  Sample RC hrefs on page: {all_hrefs[:8]}")
-
-    raw = await page.evaluate(r"""
-        () => {
-            const out = [];
-            const seen = new Set();
-            // Cast wide net: any anchor linking to a property listing
-            document.querySelectorAll('a[href]').forEach(a => {
-                const h = a.href || '';
-                if (!h.includes('realcommercial.com.au')) return;
-                if (!/\/(for-sale|lease|property)[-\/]/.test(h)) return;
-                if (seen.has(h)) return;
-                seen.add(h);
-                const card = a.closest('article')
-                          || a.closest('[class*="result"]')
-                          || a.closest('[class*="card"]')
-                          || a.closest('[class*="listing"]')
-                          || a.closest('[data-testid]')
-                          || a;
-                out.push({ href: h, text: (card.innerText || '').trim() });
-            });
-            return out;
-        }
-    """)
-
-    listings = []
-    for card in raw:
-        href = card["href"]
-        text = card["text"]
-        if not href or "realcommercial.com.au" not in href:
-            continue
-        if is_mining_town(text):
-            print(f"  [skip mining town] {href}")
-            continue
-
-        lines = [l.strip() for l in text.split("\n") if l.strip()]
-        address = next((l for l in lines if any(
-            state in l for state in ["NSW", "VIC", "QLD", "WA", "SA", "TAS", "NT", "ACT"]
-        )), lines[0] if lines else "Unknown")
-
-        price_m = re.search(r"\$[\d,]+(?:k|m)?", text, re.IGNORECASE)
-        price_str = price_m.group(0) if price_m else "Contact Agent"
-        price_val = parse_price(price_str)
-
-        yield_pct = extract_yield(text)
-
-        listings.append({
-            "source": "realcommercial.com.au",
-            "layer": 1,
-            "url": href,
-            "address": address,
-            "price_str": price_str,
-            "price_val": price_val,
-            "yield_pct": yield_pct,
-            "description": text[:500],
-            "qualifies": True,
-            "reason": "RC /invest/ native yield filter ≥8%, price ≤$500k",
-        })
-
-    print(f"  Found {len(listings)} RC layer-1 listings")
-    return listings
-
-
-# ─── Layer 2: CRE keyword search ─────────────────────────────────────────────
-
-async def scrape_cre_keyword(page: Page, label: str, url: str) -> list[dict]:
-    """Fetch all pages for one CRE keyword query. Returns raw card dicts."""
-    raw = []
+async def scrape_keyword_listings(
+    page: Page,
+    queries: list[tuple[str, str]],
+    site_name: str,
+    href_filter: str,
+) -> list[dict]:
+    """
+    Scrape listing URLs from keyword search pages.
+    href_filter: substring that must appear in property link hrefs.
+    Returns list of {url, text} dicts (card text only — caller enriches).
+    """
+    all_raw: list[dict] = []
     seen_urls: set[str] = set()
-    current_url = url
-    page_num = 1
 
-    while True:
-        print(f"    kw={label} page {page_num} → {current_url}")
-        try:
-            await page.goto(current_url, wait_until="domcontentloaded", timeout=60_000)
-            await asyncio.sleep(3)  # let JS hydrate
-        except Exception as e:
-            print(f"    [timeout/error page {page_num}]: {e}")
-            break
-        await asyncio.sleep(1.5)
+    print(f"→ {site_name} keyword searches")
+    for label, base_url in queries:
+        current_url = base_url
+        page_num = 1
+        consecutive_empty = 0
 
-        if page_num == 1:
+        while page_num <= 10:
+            print(f"    kw={label} page {page_num}")
             try:
-                count_el = await page.wait_for_selector("h1", timeout=5_000)
-                count_text = await count_el.inner_text()
-                count_m = re.search(r"(\d+)", count_text)
-                total = int(count_m.group(1)) if count_m else 0
-                print(f"    → {total} results")
-                if total == 0:
+                await page.goto(current_url, wait_until="domcontentloaded", timeout=60_000)
+                await asyncio.sleep(3)
+            except Exception as e:
+                print(f"    [error page {page_num}]: {e}")
+                break
+
+            # Count results on page 1
+            if page_num == 1:
+                try:
+                    h1 = await page.wait_for_selector("h1", timeout=5_000)
+                    h1_text = await h1.inner_text()
+                    count_m = re.search(r"(\d+)", h1_text)
+                    total = int(count_m.group(1)) if count_m else 0
+                    print(f"    → {total} results reported")
+                    if total == 0:
+                        break
+                except Exception:
+                    pass
+
+            # Extract all listing anchors
+            cards = await page.evaluate(f"""
+                () => {{
+                    const out = [];
+                    const seen = new Set();
+                    document.querySelectorAll('a[href*="{href_filter}"]').forEach(a => {{
+                        if (seen.has(a.href)) return;
+                        seen.add(a.href);
+                        const card = a.closest('article')
+                                  || a.closest('[class*="card"]')
+                                  || a.closest('[class*="listing"]')
+                                  || a.closest('[class*="result"]')
+                                  || a;
+                        out.push({{
+                            href: a.href,
+                            text: (card.innerText || '').trim().slice(0, 600)
+                        }});
+                    }});
+                    return out;
+                }}
+            """)
+
+            new_this_page = 0
+            for card in cards:
+                href = card["href"]
+                text = card["text"]
+                if not href or href in seen_urls:
+                    continue
+                if is_mining_town(text):
+                    continue
+                seen_urls.add(href)
+                all_raw.append({"url": href, "text": text})
+                new_this_page += 1
+
+            if new_this_page == 0:
+                consecutive_empty += 1
+                if consecutive_empty >= 2:
+                    break  # two empty pages = end of results
+            else:
+                consecutive_empty = 0
+
+            # Advance page
+            next_el = await page.query_selector(
+                'a[aria-label="Next page"], a[data-testid="next-page"], a[rel="next"]'
+            )
+            if next_el:
+                try:
+                    next_href = await next_el.get_attribute("href")
+                    if not next_href:
+                        break
+                    current_url = next_href if next_href.startswith("http") else \
+                        current_url.split("/")[0] + "//" + current_url.split("/")[2] + next_href
+                    page_num += 1
+                    await asyncio.sleep(1)
+                    continue
+                except Exception:
                     break
-            except Exception:
-                pass
-
-        cards = await page.evaluate("""
-            () => {
-                const out = [];
-                const seen = new Set();
-                document.querySelectorAll('a[href*="/property/"]').forEach(a => {
-                    if (!a.href.includes('commercialrealestate.com.au')) return;
-                    if (seen.has(a.href)) return;
-                    seen.add(a.href);
-                    const card = a.closest('article')
-                             || a.closest('[class*="card"]')
-                             || a.closest('[class*="listing"]')
-                             || a;
-                    out.push({
-                        href: a.href,
-                        text: (card.innerText || '').trim().slice(0, 700)
-                    });
-                });
-                return out;
-            }
-        """)
-
-        for card in cards:
-            href = card["href"]
-            text = card["text"]
-            if not href or href in seen_urls:
-                continue
-            if is_mining_town(text):
-                continue
-            seen_urls.add(href)
-            raw.append({"url": href, "text": text})
-
-        next_el = await page.query_selector(
-            'a[aria-label="Next page"], '
-            'a[data-testid="next-page"], '
-            'a[rel="next"]'
-        )
-        if not next_el:
-            if "&pg=" in current_url:
-                pg_m = re.search(r"&pg=(\d+)", current_url)
-                next_pg = int(pg_m.group(1)) + 1 if pg_m else 2
-                current_url = re.sub(r"&pg=\d+", f"&pg={next_pg}", current_url)
             else:
-                current_url = current_url + "&pg=2"
+                # Try incrementing pg param
+                if "&pg=" in current_url:
+                    pg_m = re.search(r"&pg=(\d+)", current_url)
+                    next_pg = int(pg_m.group(1)) + 1 if pg_m else 2
+                    current_url = re.sub(r"&pg=\d+", f"&pg={next_pg}", current_url)
+                elif "?pg=" in current_url:
+                    pg_m = re.search(r"\?pg=(\d+)", current_url)
+                    next_pg = int(pg_m.group(1)) + 1 if pg_m else 2
+                    current_url = re.sub(r"\?pg=\d+", f"?pg={next_pg}", current_url)
+                else:
+                    current_url = current_url + "&pg=2"
+                page_num += 1
 
-            page_num += 1
-            if page_num > 10:
-                break
-            continue
+    print(f"  {site_name} unique listings found: {len(all_raw)}")
+    return all_raw
 
-        try:
-            next_href = await next_el.get_attribute("href")
-            if not next_href:
-                break
-            if next_href.startswith("http"):
-                current_url = next_href
-            else:
-                current_url = f"https://www.commercialrealestate.com.au{next_href}"
-            page_num += 1
-            await asyncio.sleep(1)
-        except Exception:
-            break
 
-    return raw
-
+# ─── Listing detail fetcher ───────────────────────────────────────────────────
 
 async def fetch_listing_detail(page: Page, url: str) -> str:
-    """Visit a CRE listing page and return its full text (max 1500 chars)."""
+    """Visit a listing page and return its full text (max 2000 chars)."""
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
         await asyncio.sleep(2)
         text = await page.evaluate("""
             () => {
-                // Remove nav/footer noise
-                ['nav','footer','header','[class*="nav"]','[class*="footer"]'].forEach(sel => {
+                ['nav','footer','header',
+                 '[class*="nav"]','[class*="footer"]','[class*="cookie"]',
+                 '[class*="modal"]','[class*="banner"]'].forEach(sel => {
                     document.querySelectorAll(sel).forEach(el => el.remove());
                 });
-                return (document.body.innerText || '').trim();
+                return (document.body.innerText || '').replace(/\\s+/g, ' ').trim();
             }
         """)
-        return text[:1500]
-    except Exception as e:
+        return text[:2000]
+    except Exception:
         return ""
-
-
-async def scrape_cre_all(page: Page) -> list[dict]:
-    """Run all keyword queries, deduplicate by URL, then enrich with detail pages."""
-    all_raw: list[dict] = []
-    seen_urls: set[str] = set()
-
-    print("→ Layer 2: CRE keyword searches")
-    for label, url in CRE_KEYWORD_QUERIES:
-        items = await scrape_cre_keyword(page, label, url)
-        for item in items:
-            if item["url"] not in seen_urls:
-                seen_urls.add(item["url"])
-                all_raw.append(item)
-
-    print(f"  CRE unique URLs found: {len(all_raw)} — fetching detail pages…")
-
-    # Cap at 60 listings to keep runtime reasonable (~3 min)
-    all_raw = all_raw[:60]
-    for i, item in enumerate(all_raw, 1):
-        detail = await fetch_listing_detail(page, item["url"])
-        if detail:
-            item["text"] = detail  # replace card snippet with full page text
-        if i % 10 == 0:
-            print(f"    fetched {i}/{len(all_raw)} detail pages")
-
-    print(f"  CRE listings ready for classification: {len(all_raw)}")
-    return all_raw
 
 
 # ─── Claude Haiku Classification ─────────────────────────────────────────────
 
-CLASSIFY_PROMPT = """You are classifying an Australian commercial property listing.
-Determine if it meets ALL of these criteria:
+CLASSIFY_PROMPT = """You are reviewing an Australian commercial property listing for an investor.
 
-1. Yield ≥ 8% p.a. — must be a GENUINE lease yield, NOT a developer-guaranteed return
-   (e.g. "7% guaranteed for 1 year" = FAIL. "8.5% net yield, existing 5yr lease" = PASS)
-2. Currently tenanted — an existing commercial tenant with a real lease already in place
-3. Price under $500,000 AUD (if price is "Contact Agent" or undisclosed = uncertain, lean FAIL unless yield is explicitly stated)
-4. NOT in a mining town — reject if address mentions:
-   Mt Isa, Karratha, Port Hedland, Newman, Kalgoorlie, Broken Hill, Moranbah,
-   Tennant Creek, Roxby Downs, Tom Price, Dysart, Middlemount
+Show the listing (qualifies: true) if it meets ALL of:
+1. Tenanted — a real commercial tenant with an existing lease (NOT "seeking tenant", NOT vacant)
+2. Price ≤ $500,000 AUD — reject if clearly over. If "Contact Agent" or no price, lean PASS.
+3. Return/yield — ANY specific % figure ≥ 6% p.a. is good. If yield is implied but not stated, lean PASS and note it.
+4. NOT a developer guarantee (e.g. "guaranteed return for 2 years" on a new build = FAIL)
+5. NOT in a mining town: Mt Isa, Karratha, Port Hedland, Newman, Kalgoorlie, Broken Hill,
+   Moranbah, Tennant Creek, Roxby Downs, Tom Price, Dysart, Middlemount
 
 Listing text:
 \"\"\"
 {text}
 \"\"\"
 
-Respond ONLY with valid JSON, no markdown, no explanation:
-{{"qualifies": true or false, "yield_pct": <number or null>, "price_str": "<price string or null>", "address": "<full address>", "reason": "<one sentence explaining your decision>"}}"""
+Respond ONLY with valid JSON, no markdown:
+{{"qualifies": true or false, "yield_pct": <number or null>, "price_str": "<price or null>", "address": "<address>", "reason": "<one sentence>"}}"""
 
 
 def classify_listings(raw_listings: list[dict]) -> list[dict]:
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        print("  ⚠  ANTHROPIC_API_KEY not set — skipping Layer 2 classification")
+        print("  ⚠  ANTHROPIC_API_KEY not set — skipping classification")
         return []
 
     client = Anthropic(api_key=api_key)
@@ -343,15 +254,17 @@ def classify_listings(raw_listings: list[dict]) -> list[dict]:
 
     print(f"  Classifying {len(raw_listings)} listings with Claude Haiku...")
 
+    # Debug: show first 2 listing texts so we know what Claude sees
+    for i, item in enumerate(raw_listings[:2], 1):
+        preview = item["text"][:300].replace("\n", " ")
+        print(f"  [debug listing {i}]: {preview}…")
+
     for i, item in enumerate(raw_listings, 1):
         try:
             resp = client.messages.create(
                 model=CLAUDE_MODEL,
-                max_tokens=250,
-                messages=[{
-                    "role": "user",
-                    "content": CLASSIFY_PROMPT.format(text=item["text"]),
-                }],
+                max_tokens=300,
+                messages=[{"role": "user", "content": CLASSIFY_PROMPT.format(text=item["text"])}],
             )
             raw_json = resp.content[0].text.strip()
             raw_json = re.sub(r"^```(?:json)?\s*", "", raw_json)
@@ -360,25 +273,24 @@ def classify_listings(raw_listings: list[dict]) -> list[dict]:
 
             if parsed.get("qualifies"):
                 qualified.append({
-                    "source": "commercialrealestate.com.au",
+                    "source": item.get("source", "commercialrealestate.com.au"),
                     "layer": 2,
                     "url": item["url"],
                     "address": parsed.get("address", ""),
                     "price_str": parsed.get("price_str") or "",
                     "price_val": parse_price(parsed.get("price_str") or ""),
                     "yield_pct": parsed.get("yield_pct"),
-                    "description": item["text"][:450],
+                    "description": item["text"][:500],
                     "qualifies": True,
                     "reason": parsed.get("reason", ""),
                 })
         except json.JSONDecodeError:
             errors += 1
-            print(f"  [JSON parse error #{errors}] raw: {resp.content[0].text[:100]}")
+            print(f"  [JSON error #{errors}]: {resp.content[0].text[:80]}")
         except Exception as e:
             errors += 1
-            print(f"  [classification error #{errors}]: {e}")
+            print(f"  [error #{errors}]: {e}")
 
-        # Brief pause every 20 calls to avoid rate limit bursts
         if i % 20 == 0:
             time.sleep(1)
 
@@ -408,46 +320,74 @@ async def main():
             timezone_id="Australia/Sydney",
             extra_http_headers={"Accept-Language": "en-AU,en;q=0.9"},
         )
-        # Hide webdriver flag so sites don't fingerprint us as a bot
         await ctx.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
         )
         page = await ctx.new_page()
 
-        # Layer 1
-        rc_listings = await scrape_rc_invest(page)
+        # ── RC keyword search ──────────────────────────────────────────────
+        rc_raw = await scrape_keyword_listings(
+            page, RC_KEYWORD_QUERIES,
+            site_name="realcommercial.com.au",
+            href_filter="/for-sale/property-",
+        )
 
-        # Layer 2
-        cre_raw = await scrape_cre_all(page)
-        cre_listings = classify_listings(cre_raw)
+        # ── CRE keyword search ─────────────────────────────────────────────
+        cre_raw = await scrape_keyword_listings(
+            page, CRE_KEYWORD_QUERIES,
+            site_name="commercialrealestate.com.au",
+            href_filter="/property/",
+        )
+
+        # ── Enrich all listings with detail pages ──────────────────────────
+        all_raw = rc_raw + cre_raw
+
+        # Deduplicate
+        seen: set[str] = set()
+        deduped_raw = []
+        for item in all_raw:
+            if item["url"] not in seen:
+                seen.add(item["url"])
+                deduped_raw.append(item)
+
+        # Tag source
+        rc_urls = {i["url"] for i in rc_raw}
+        for item in deduped_raw:
+            item["source"] = "realcommercial.com.au" if item["url"] in rc_urls \
+                else "commercialrealestate.com.au"
+
+        # Cap total to keep runtime ≤ 8 min
+        deduped_raw = deduped_raw[:80]
+        print(f"\n→ Fetching {len(deduped_raw)} listing detail pages…")
+
+        for i, item in enumerate(deduped_raw, 1):
+            detail = await fetch_listing_detail(page, item["url"])
+            if detail:
+                item["text"] = detail
+            if i % 10 == 0:
+                print(f"  fetched {i}/{len(deduped_raw)}")
 
         await browser.close()
 
-    # Merge + deduplicate by URL
-    all_listings = rc_listings + cre_listings
-    seen: set[str] = set()
-    deduped: list[dict] = []
-    for item in all_listings:
-        if item["url"] not in seen:
-            seen.add(item["url"])
-            deduped.append(item)
+    # ── Classify ──────────────────────────────────────────────────────────
+    qualified = classify_listings(deduped_raw)
 
     # Sort: highest yield first, then price ascending
-    deduped.sort(key=lambda x: (-(x.get("yield_pct") or 0), x.get("price_val") or 999_999))
+    qualified.sort(key=lambda x: (-(x.get("yield_pct") or 0), x.get("price_val") or 999_999))
 
     finished = datetime.now(timezone.utc)
     output = {
         "updated": finished.isoformat(),
         "duration_seconds": round((finished - started).total_seconds()),
-        "count": len(deduped),
-        "listings": deduped,
+        "count": len(qualified),
+        "listings": qualified,
     }
 
     out_path = os.environ.get("OUTPUT_FILE", "listings.json")
     with open(out_path, "w") as f:
         json.dump(output, f, indent=2)
 
-    print(f"\n✓ Done in {output['duration_seconds']}s — {len(deduped)} qualifying listings → {out_path}")
+    print(f"\n✓ Done in {output['duration_seconds']}s — {len(qualified)} qualifying listings → {out_path}")
 
 
 if __name__ == "__main__":
