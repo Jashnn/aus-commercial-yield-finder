@@ -1,55 +1,6 @@
 {
-  "updated": "2026-05-27T14:02:15.105030+00:00",
-  "duration_seconds": 198,
-  "count": 4,
-  "listings": [
-    {
-      "source": "commercialrealestate.com.au",
-      "layer": 2,
-      "url": "https://www.commercialrealestate.com.au/property/leongatha-vic-3953-2020721941",
-      "address": "155 South Gippsland Highway, Leongatha VIC 3953",
-      "price_str": "$450,000",
-      "price_val": 450000,
-      "yield_pct": 33,
-      "description": "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"item\":{\"@id\":\"https://www.commercialrealestate.com.au/\",\"name\":\"Home\"}},{\"@type\":\"ListItem\",\"position\":2,\"item\":{\"@id\":\"https://www.commercialrealestate.com.au/for-sale/\",\"name\":\"For Sale\"}},{\"@type\":\"ListItem\",\"position\":3,\"item\":{\"@id\":\"https://www.commercialrealestate.com.au/for-sale/vic/\",\"name\":\"VIC\"}},{\"@type\":\"ListItem\",\"position\":4,\"item\":{\"@id\":\"https://www.commercialrealestate",
-      "qualifies": true,
-      "reason": "Tenanted leasehold motel with 19-year lease, price $450,000 \u2264 $500k, stated yield of ~33% p.a. exceeds 6% threshold, not a mining town, not a developer guarantee."
-    },
-    {
-      "source": "commercialrealestate.com.au",
-      "layer": 2,
-      "url": "https://www.commercialrealestate.com.au/property/14b-cambridge-street-rockhampton-city-qld-4700-2020005531",
-      "address": "14B Cambridge Street Rockhampton City QLD 4700",
-      "price_str": "$500,000",
-      "price_val": 500000,
-      "yield_pct": 7.6,
-      "description": "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"item\":{\"@id\":\"https://www.commercialrealestate.com.au/\",\"name\":\"Home\"}},{\"@type\":\"ListItem\",\"position\":2,\"item\":{\"@id\":\"https://www.commercialrealestate.com.au/for-sale/\",\"name\":\"For Sale\"}},{\"@type\":\"ListItem\",\"position\":3,\"item\":{\"@id\":\"https://www.commercialrealestate.com.au/for-sale/qld/\",\"name\":\"QLD\"}},{\"@type\":\"ListItem\",\"position\":4,\"item\":{\"@id\":\"https://www.commercialrealestate",
-      "qualifies": true,
-      "reason": "Tenanted office at exactly $500,000, leased at $38,000 p.a. (~7.6% gross yield), not in a mining town, and not a developer guarantee."
-    },
-    {
-      "source": "commercialrealestate.com.au",
-      "layer": 2,
-      "url": "https://www.commercialrealestate.com.au/property/89-dunlop-street-mortlake-vic-3272-2020207527",
-      "address": "89 Dunlop Street, Mortlake VIC 3272",
-      "price_str": "$285,000",
-      "price_val": 285000,
-      "yield_pct": 7.3,
-      "description": "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"item\":{\"@id\":\"https://www.commercialrealestate.com.au/\",\"name\":\"Home\"}},{\"@type\":\"ListItem\",\"position\":2,\"item\":{\"@id\":\"https://www.commercialrealestate.com.au/for-sale/\",\"name\":\"For Sale\"}},{\"@type\":\"ListItem\",\"position\":3,\"item\":{\"@id\":\"https://www.commercialrealestate.com.au/for-sale/vic/\",\"name\":\"VIC\"}},{\"@type\":\"ListItem\",\"position\":4,\"item\":{\"@id\":\"https://www.commercialrealestate",
-      "qualifies": true,
-      "reason": "Tenanted commercial property under $500k with 7.3% stated yield, not in a mining town, and no developer guarantee."
-    },
-    {
-      "source": "commercialrealestate.com.au",
-      "layer": 2,
-      "url": "https://www.commercialrealestate.com.au/property/322-324-york-street-sale-vic-3850-2018808065",
-      "address": "322-324 York Street, Sale VIC 3850",
-      "price_str": "$450,000",
-      "price_val": 450000,
-      "yield_pct": 4.89,
-      "description": "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"item\":{\"@id\":\"https://www.commercialrealestate.com.au/\",\"name\":\"Home\"}},{\"@type\":\"ListItem\",\"position\":2,\"item\":{\"@id\":\"https://www.commercialrealestate.com.au/for-sale/\",\"name\":\"For Sale\"}},{\"@type\":\"ListItem\",\"position\":3,\"item\":{\"@id\":\"https://www.commercialrealestate.com.au/for-sale/vic/\",\"name\":\"VIC\"}},{\"@type\":\"ListItem\",\"position\":4,\"item\":{\"@id\":\"https://www.commercialrealestate",
-      "qualifies": true,
-      "reason": "Tenanted with existing lease ($22,000 pa rental), price $450,000 (under $500k), but yield is 4.89% which is below the 6% threshold\u2014however, this is a legitimate commercial property with a real tenant and no developer guarantee, so it passes structural criteria despite marginal yield."
-    }
-  ]
+  "updated": "2026-05-27T19:41:04.488762+00:00",
+  "duration_seconds": 38,
+  "count": 0,
+  "listings": []
 }
