@@ -92,18 +92,19 @@ def _git_push(token: str):
     with _lock:
         _state["log"].append("📤 Committing & pushing to GitHub…")
 
-    cmds = [
-        ["git", "add", "listings.json"],
-        ["git", "-c", "user.name=Jashan", "-c", "user.email=jashn.preet@gmail.com",
-         "commit", "-m", f"chore: manual scrape {time.strftime('%Y-%m-%d %H:%M')}"],
-    ]
-    for cmd in cmds:
-        subprocess.run(cmd, cwd=str(REPO_DIR), capture_output=True)
-
     if token:
         remote = f"https://Jashnn:{token}@github.com/Jashnn/aus-commercial-yield-finder.git"
     else:
         remote = "origin"
+
+    cmds = [
+        ["git", "add", "listings.json"],
+        ["git", "-c", "user.name=Jashan", "-c", "user.email=jashn.preet@gmail.com",
+         "commit", "-m", f"chore: manual scrape {time.strftime('%Y-%m-%d %H:%M')}"],
+        ["git", "pull", "--rebase", remote, "main"],  # sync before push
+    ]
+    for cmd in cmds:
+        subprocess.run(cmd, cwd=str(REPO_DIR), capture_output=True)
 
     result = subprocess.run(
         ["git", "push", remote, "main"],

@@ -8,8 +8,8 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/python3</string>
-    <string>REPO_PATH/server.py</string>
+    <string>/bin/bash</string>
+    <string>REPO_PATH/start-server.sh</string>
   </array>
 
   <key>WorkingDirectory</key>

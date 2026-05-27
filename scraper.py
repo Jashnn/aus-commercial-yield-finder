@@ -102,7 +102,7 @@ async def scrape_keyword_listings(
         page_num = 1
         consecutive_empty = 0
 
-        while page_num <= 10:
+        while page_num <= max_pages:
             print(f"    kw={label} page {page_num}")
             try:
                 await page.goto(current_url, wait_until="domcontentloaded", timeout=60_000)
@@ -111,7 +111,8 @@ async def scrape_keyword_listings(
                 print(f"    [error page {page_num}]: {e}")
                 break
 
-            # Count results on page 1
+            # Count results on page 1 — use to cap pagination
+            max_pages = 10
             if page_num == 1:
                 try:
                     h1 = await page.wait_for_selector("h1", timeout=5_000)
@@ -121,6 +122,8 @@ async def scrape_keyword_listings(
                     print(f"    → {total} results reported")
                     if total == 0:
                         break
+                    # 20 listings per page — don't fetch more pages than needed
+                    max_pages = min(10, -(-total // 20))  # ceiling division
                 except Exception:
                     pass
 
@@ -202,11 +205,33 @@ async def scrape_keyword_listings(
 # ─── Listing detail fetcher ───────────────────────────────────────────────────
 
 async def fetch_listing_detail(page: Page, url: str) -> str:
-    """Visit a listing page and return its full text (max 2000 chars)."""
+    """Visit a listing page and return its full text (max 2000 chars).
+    Waits for actual content to render before reading — fixes React/Next.js blank pages.
+    """
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-        await asyncio.sleep(2)
-        text = await page.evaluate("""
+
+        # Wait for real content — price or heading — to appear in the DOM
+        try:
+            await page.wait_for_selector(
+                'h1, [class*="price"], [class*="Price"], '
+                '[data-testid*="price"], [class*="detail"], [class*="Description"]',
+                timeout=8_000,
+            )
+        except Exception:
+            pass  # proceed anyway; at least we have the DOM
+
+        await asyncio.sleep(1)
+
+        # Also try to grab JSON-LD structured data (most reliable on property sites)
+        json_ld_text = await page.evaluate("""
+            () => {
+                const scripts = [...document.querySelectorAll('script[type="application/ld+json"]')];
+                return scripts.map(s => s.textContent).join(' ');
+            }
+        """)
+
+        body_text = await page.evaluate("""
             () => {
                 ['nav','footer','header',
                  '[class*="nav"]','[class*="footer"]','[class*="cookie"]',
@@ -216,7 +241,10 @@ async def fetch_listing_detail(page: Page, url: str) -> str:
                 return (document.body.innerText || '').replace(/\\s+/g, ' ').trim();
             }
         """)
-        return text[:2000]
+
+        # Combine: JSON-LD first (structured), then page text
+        combined = (json_ld_text + " " + body_text).strip()
+        return combined[:2500]
     except Exception:
         return ""
 
