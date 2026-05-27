@@ -85,22 +85,31 @@ def extract_yield(text: str) -> Optional[float]:
 
 async def scrape_rc_invest(page: Page) -> list[dict]:
     print("→ Layer 1: RC /invest/ (pre-filtered yield≥8%, price≤$500k)")
-    await page.goto(RC_INVEST_URL, wait_until="networkidle", timeout=45_000)
+    await page.goto(RC_INVEST_URL, wait_until="domcontentloaded", timeout=60_000)
+    await asyncio.sleep(3)  # let JS hydrate
 
     # Scroll to trigger lazy-loading
-    for _ in range(6):
+    for _ in range(8):
         await page.evaluate("window.scrollBy(0, 900)")
-        await asyncio.sleep(0.6)
+        await asyncio.sleep(0.7)
     await asyncio.sleep(2)
 
     raw = await page.evaluate(r"""
         () => {
             const out = [];
             const seen = new Set();
-            document.querySelectorAll('a[href*="/for-sale/property-"]').forEach(a => {
+            // Cast wide net: any anchor linking to a property listing
+            document.querySelectorAll(
+                'a[href*="/for-sale/property-"], a[href*="/property-"]'
+            ).forEach(a => {
+                if (!a.href.includes('realcommercial.com.au')) return;
                 if (seen.has(a.href)) return;
                 seen.add(a.href);
-                const card = a.closest('article') || a.closest('[class*="result"]') || a;
+                const card = a.closest('article')
+                          || a.closest('[class*="result"]')
+                          || a.closest('[class*="card"]')
+                          || a.closest('[data-testid]')
+                          || a;
                 out.push({ href: a.href, text: (card.innerText || '').trim() });
             });
             return out;
@@ -157,7 +166,8 @@ async def scrape_cre_keyword(page: Page, label: str, url: str) -> list[dict]:
     while True:
         print(f"    kw={label} page {page_num} → {current_url}")
         try:
-            await page.goto(current_url, wait_until="networkidle", timeout=45_000)
+            await page.goto(current_url, wait_until="domcontentloaded", timeout=60_000)
+            await asyncio.sleep(3)  # let JS hydrate
         except Exception as e:
             print(f"    [timeout/error page {page_num}]: {e}")
             break
@@ -341,8 +351,25 @@ async def main():
     print(f"=== Commercial Yield Scanner starting {started.isoformat()} ===\n")
 
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True, args=["--no-sandbox"])
-        ctx = await browser.new_context(user_agent=USER_AGENT)
+        browser = await pw.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+            ],
+        )
+        ctx = await browser.new_context(
+            user_agent=USER_AGENT,
+            viewport={"width": 1440, "height": 900},
+            locale="en-AU",
+            timezone_id="Australia/Sydney",
+            extra_http_headers={"Accept-Language": "en-AU,en;q=0.9"},
+        )
+        # Hide webdriver flag so sites don't fingerprint us as a bot
+        await ctx.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
+        )
         page = await ctx.new_page()
 
         # Layer 1
