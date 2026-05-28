@@ -263,9 +263,9 @@
       border-top: 1px solid var(--border);
     }
 
-    /* ─── Update Results button (localhost only) ─── */
-    #updateBtn {
-      display: none; /* shown via JS only on localhost */
+    /* ─── Buttons ─── */
+    #updateBtn, #cloudBtn {
+      display: none;
       align-items: center;
       gap: 8px;
       background: var(--accent);
@@ -280,10 +280,24 @@
       white-space: nowrap;
     }
 
-    #updateBtn:hover { opacity: 0.85; }
-    #updateBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #updateBtn, #cloudBtn {
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 13px;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 18px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+    #updateBtn { background: var(--accent); color: #000; }
+    #cloudBtn  { background: var(--accent2); color: #fff; }
+    #updateBtn:hover, #cloudBtn:hover { opacity: 0.85; }
+    #updateBtn:disabled, #cloudBtn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    #updateBtn .btn-spinner {
+    #updateBtn .btn-spinner, #cloudBtn .btn-spinner {
       width: 14px;
       height: 14px;
       border: 2px solid rgba(0,0,0,0.3);
@@ -293,7 +307,8 @@
       display: none;
     }
 
-    #updateBtn.running .btn-spinner { display: block; }
+    #updateBtn.running .btn-spinner,
+    #cloudBtn.running  .btn-spinner { display: block; }
 
     /* ─── Scraper log panel ─── */
     #scraperPanel {
@@ -330,6 +345,10 @@
   <button id="updateBtn" onclick="runScraper()">
     <div class="btn-spinner"></div>
     <span id="updateBtnLabel">⟳ Update Results</span>
+  </button>
+  <button id="cloudBtn" onclick="triggerCloud()">
+    <div class="btn-spinner"></div>
+    <span id="cloudBtnLabel">☁ Update Results</span>
   </button>
 </header>
 
@@ -508,110 +527,165 @@
     document.getElementById(id).addEventListener('change', renderGrid);
   });
 
-  // ─── Init ─────────────────────────────────────────────────────────────────
+  // ─── Init ────────────────────────────────────────────────────────────────
   loadData();
 
-  // ─── Localhost-only: Update Results ──────────────────────────────────────
-  const IS_LOCAL = window.location.hostname === 'localhost' ||
-                   window.location.hostname === '127.0.0.1';
+  const IS_LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
   const SERVER   = 'http://localhost:8765';
+  const GH_REPO  = 'Jashnn/aus-commercial-yield-finder';
+  const GH_WORKFLOW = 'daily.yml';
 
-  if (IS_LOCAL) {
-    document.getElementById('updateBtn').style.display = 'inline-flex';
-  }
+  document.getElementById(IS_LOCAL ? 'updateBtn' : 'cloudBtn').style.display = 'inline-flex';
 
+  // ─── Localhost: Update Results ────────────────────────────────────────────
   let _pollTimer = null;
 
   async function runScraper() {
-    const btn   = document.getElementById('updateBtn');
+    const btn = document.getElementById('updateBtn');
     const label = document.getElementById('updateBtnLabel');
     if (btn.disabled) return;
-
-    btn.disabled = true;
-    btn.classList.add('running');
-    label.textContent = 'Running…';
-
+    btn.disabled = true; btn.classList.add('running'); label.textContent = 'Running…';
     try {
       await fetch(SERVER + '/run');
     } catch(e) {
-      alert('Could not reach localhost server.\nMake sure server.py is running:\n  python3 server.py');
-      btn.disabled = false;
-      btn.classList.remove('running');
-      label.textContent = '⟳ Update Results';
+      alert('Could not reach localhost server. Make sure server.py is running.');
+      btn.disabled = false; btn.classList.remove('running'); label.textContent = '⟳ Update Results';
       return;
     }
-
-    openLogPanel();
-    startPolling();
-  }
-
-  function openLogPanel() {
-    const panel = document.getElementById('scraperPanel');
-    const log   = document.getElementById('scraperLog');
-    panel.classList.add('visible');
-    log.innerHTML = '';
-  }
-
-  function startPolling() {
+    document.getElementById('scraperPanel').classList.add('visible');
+    document.getElementById('scraperLog').innerHTML = '';
     clearInterval(_pollTimer);
-    _pollTimer = setInterval(pollStatus, 2000);
-    pollStatus(); // immediate first check
+    _pollTimer = setInterval(pollLocalStatus, 2000);
+    pollLocalStatus();
   }
 
   let _lastLogLen = 0;
-
-  async function pollStatus() {
+  async function pollLocalStatus() {
     let status;
-    try {
-      const res = await fetch(SERVER + '/status');
-      status = await res.json();
-    } catch(e) {
-      return; // server not reachable yet, keep polling
-    }
-
-    // Append new log lines
+    try { const r = await fetch(SERVER + '/status'); status = await r.json(); } catch(e) { return; }
     const log = document.getElementById('scraperLog');
-    const lines = status.log || [];
-    const newLines = lines.slice(_lastLogLen);
-    _lastLogLen = lines.length;
-
-    newLines.forEach(line => {
+    (status.log || []).slice(_lastLogLen).forEach(line => {
       const div = document.createElement('div');
       if (line.includes('✅') || line.includes('Done')) div.className = 'log-done';
       else if (line.includes('❌') || line.includes('Error')) div.className = 'log-err';
       else if (line.includes('⚠')) div.className = 'log-warn';
-      div.textContent = line;
-      log.appendChild(div);
+      div.textContent = line; log.appendChild(div);
+    });
+    _lastLogLen = (status.log || []).length;
+    log.scrollTop = log.scrollHeight;
+    if (!status.running && _lastLogLen > 0) {
+      clearInterval(_pollTimer); _lastLogLen = 0;
+      const btn = document.getElementById('updateBtn');
+      const label = document.getElementById('updateBtnLabel');
+      btn.disabled = false; btn.classList.remove('running');
+      label.textContent = status.last_count != null ? `✓ ${status.last_count} found` : '⟳ Update Results';
+      setTimeout(() => { label.textContent = '⟳ Update Results'; }, 4000);
+      await loadData();
+      setTimeout(() => document.getElementById('scraperPanel').classList.remove('visible'), 8000);
+    }
+  }
+
+  // ─── GitHub Pages: Cloud Update ──────────────────────────────────────────
+  async function triggerCloud() {
+    const btn = document.getElementById('cloudBtn');
+    const label = document.getElementById('cloudBtnLabel');
+    if (btn.disabled) return;
+
+    // Get or ask for token
+    let token = localStorage.getItem('rc_gh_token');
+    if (!token) {
+      token = prompt(
+        'Enter a GitHub Personal Access Token with "workflow" scope.\n' +
+        'Create one at: github.com/settings/tokens\n\n' +
+        'It is saved only in your browser (localStorage), never sent anywhere else.'
+      );
+      if (!token) return;
+      localStorage.setItem('rc_gh_token', token.trim());
+      token = token.trim();
+    }
+
+    btn.disabled = true; btn.classList.add('running'); label.textContent = 'Queuing…';
+
+    // Trigger workflow_dispatch
+    const r = await fetch(`https://api.github.com/repos/${GH_REPO}/actions/workflows/${GH_WORKFLOW}/dispatches`, {
+      method: 'POST',
+      headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ref: 'main' })
     });
 
-    // Auto-scroll to bottom
+    if (r.status === 401 || r.status === 403) {
+      localStorage.removeItem('rc_gh_token');
+      alert('Token rejected. Please try again with a valid token (workflow scope required).');
+      btn.disabled = false; btn.classList.remove('running'); label.textContent = '☁ Update Results';
+      return;
+    }
+    if (!r.ok) {
+      alert(`Failed to trigger scrape (HTTP ${r.status}). Check your token has "workflow" scope.`);
+      btn.disabled = false; btn.classList.remove('running'); label.textContent = '☁ Update Results';
+      return;
+    }
+
+    label.textContent = '☁ Running (~4 min)…';
+    logCloud('Scrape queued in GitHub Actions — takes ~4 minutes…');
+
+    // Poll for run completion (no auth needed for public repo)
+    await new Promise(r => setTimeout(r, 8000)); // wait for run to register
+    pollCloudRun(token, Date.now());
+  }
+
+  function logCloud(msg) {
+    const panel = document.getElementById('scraperPanel');
+    const log   = document.getElementById('scraperLog');
+    panel.classList.add('visible');
+    const div = document.createElement('div');
+    div.textContent = msg; log.appendChild(div);
     log.scrollTop = log.scrollHeight;
+  }
 
-    // Scraper finished
-    if (!status.running && _lastLogLen > 0) {
-      clearInterval(_pollTimer);
-      _lastLogLen = 0;
+  async function pollCloudRun(token, startedAt) {
+    const elapsed = Date.now() - startedAt;
+    if (elapsed > 600000) { // 10 min timeout
+      resetCloudBtn('☁ Update Results');
+      logCloud('Timed out — check GitHub Actions for status.');
+      return;
+    }
+    try {
+      const r = await fetch(
+        `https://api.github.com/repos/${GH_REPO}/actions/runs?event=workflow_dispatch&per_page=1`,
+        { headers: { Authorization: `token ${token}` } }
+      );
+      const data = await r.json();
+      const run = (data.workflow_runs || [])[0];
+      if (!run) { setTimeout(() => pollCloudRun(token, startedAt), 15000); return; }
 
-      const btn   = document.getElementById('updateBtn');
-      const label = document.getElementById('updateBtnLabel');
-      btn.disabled = false;
-      btn.classList.remove('running');
+      const status = run.status;     // queued | in_progress | completed
+      const conclusion = run.conclusion; // success | failure | null
 
-      if (status.last_count !== null) {
-        label.textContent = `✓ ${status.last_count} found`;
-        setTimeout(() => { label.textContent = '⟳ Update Results'; }, 4000);
-      } else {
-        label.textContent = '⟳ Update Results';
+      if (status !== 'completed') {
+        logCloud(`GitHub Actions: ${status}…`);
+        setTimeout(() => pollCloudRun(token, startedAt), 20000);
+        return;
       }
 
-      // Reload listings without full page refresh
-      await loadData();
-
-      // Fade panel out after 8 seconds
-      setTimeout(() => {
-        document.getElementById('scraperPanel').classList.remove('visible');
-      }, 8000);
+      if (conclusion === 'success') {
+        logCloud('✅ Done! Reloading listings…');
+        await new Promise(r => setTimeout(r, 5000)); // wait for pages deploy
+        await loadData();
+        resetCloudBtn('☁ Update Results');
+        setTimeout(() => document.getElementById('scraperPanel').classList.remove('visible'), 8000);
+      } else {
+        logCloud(`❌ Run finished with: ${conclusion}. Check GitHub Actions for details.`);
+        resetCloudBtn('☁ Update Results');
+      }
+    } catch(e) {
+      setTimeout(() => pollCloudRun(token, startedAt), 20000);
     }
+  }
+
+  function resetCloudBtn(text) {
+    const btn = document.getElementById('cloudBtn');
+    btn.disabled = false; btn.classList.remove('running');
+    document.getElementById('cloudBtnLabel').textContent = text;
   }
 </script>
 </body>
