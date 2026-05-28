@@ -35,9 +35,9 @@ MINING_TOWNS = {
     "singleton", "muswellbrook",
 }
 
-# Runs visible locally so CRE's GraphQL API fires (bot-detected in headless).
-# GitHub Actions sets CI=true → headless=True → falls back to HTML scraping.
-HEADLESS = bool(os.environ.get("CI"))
+# Always non-headless — CRE's GraphQL + RC cookies both require a real browser.
+# In GitHub Actions, daily.yml wraps with xvfb-run to provide a virtual display.
+HEADLESS = False
 
 RC_INVEST_QUERIES = [
     ("yield8", "https://www.realcommercial.com.au/invest/?includePropertiesWithin=includesurrounding&maxPrice=500000&yieldValue=8&yieldOnlyForUnpricedListings=true&activeSort=calculatedYield-desc"),
@@ -243,29 +243,44 @@ def refresh_rc_cookies() -> list[dict]:
 def load_rc_cookies() -> list[dict]:
     """
     Load RC cookies for Playwright injection.
-    Always tries Chrome first (auto-refresh), falls back to saved file.
-    Warns when saved cookies exceed COOKIE_MAX_AGE_DAYS.
+    Priority: RC_COOKIES env var (GitHub Secret) → Chrome profile → saved file.
     """
+    # 1. GitHub Actions: read from secret
+    env_val = os.environ.get("RC_COOKIES")
+    if env_val:
+        try:
+            data = json.loads(env_val)
+            cookies = data.get("cookies", [])
+            extracted_at = data.get("extracted_at", "")
+            if extracted_at:
+                age_days = (datetime.now() - datetime.fromisoformat(extracted_at)).days
+                print(f"  → Loaded {len(cookies)} RC cookies from secret ({age_days}d old)")
+                if age_days > 25:
+                    print(f"  ⚠  Cookies are {age_days}d old — run extract_cookies.py and update RC_COOKIES secret")
+            return cookies
+        except Exception as e:
+            print(f"  ⚠  RC_COOKIES secret parse error: {e}")
+
+    # 2. Local: read from Chrome profile
     fresh = refresh_rc_cookies()
     if fresh:
         return fresh
 
+    # 3. Fall back to saved file
     if not os.path.exists(COOKIE_FILE):
-        print("  ⚠  No RC cookies — open realcommercial.com.au in Chrome at least once to enable RC scraping")
+        print("  ⚠  No RC cookies — open realcommercial.com.au in Chrome at least once")
         return []
 
     with open(COOKIE_FILE) as f:
         data = json.load(f)
 
     age_days = (datetime.now() - datetime.fromisoformat(data["saved_at"])).days
-    cookies = data.get("cookies", [])
-
     if age_days > COOKIE_MAX_AGE_DAYS:
-        print(f"  ⚠  RC cookies are {age_days}d old (limit {COOKIE_MAX_AGE_DAYS}d) — open realcommercial.com.au in Chrome to refresh")
+        print(f"  ⚠  RC cookies are {age_days}d old — open realcommercial.com.au in Chrome to refresh")
     else:
         print(f"  → Using saved RC cookies ({age_days}d old)")
 
-    return cookies
+    return data.get("cookies", [])
 
 
 # ─── RC: scrape via cookie injection ─────────────────────────────────────────
@@ -273,10 +288,6 @@ def load_rc_cookies() -> list[dict]:
 async def scrape_rc(page: Page) -> list[dict]:
     print("→ realcommercial.com.au (cookie injection)")
     all_raw: list[dict] = []
-
-    if HEADLESS:
-        print("  ⚠  Skipping RC in CI mode — cookies only available locally")
-        return all_raw
 
     cookies = load_rc_cookies()
     if not cookies:
@@ -507,19 +518,16 @@ async def main():
         # ── RC via cookie injection ───────────────────────────────────────
         rc_raw = await scrape_rc(page)
 
-        # ── CRE: GraphQL if non-headless, HTML fallback if headless ───────
-        if not HEADLESS:
-            cre_cards = await scrape_cre_graphql(page)
-            cre_raw = [
-                {
-                    "url": f"https://www.commercialrealestate.com.au{c['seoUrl']}",
-                    "text": card_to_text(c),
-                    "source": "commercialrealestate.com.au",
-                }
-                for c in cre_cards
-            ]
-        else:
-            cre_raw = await scrape_cre_html(page)
+        # ── CRE: GraphQL intercept (always non-headless) ──────────────────
+        cre_cards = await scrape_cre_graphql(page)
+        cre_raw = [
+            {
+                "url": f"https://www.commercialrealestate.com.au{c['seoUrl']}",
+                "text": card_to_text(c),
+                "source": "commercialrealestate.com.au",
+            }
+            for c in cre_cards
+        ]
 
         # ── Merge + dedupe ────────────────────────────────────────────────
         seen: set[str] = set()

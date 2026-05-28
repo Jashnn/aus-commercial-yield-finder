@@ -27,12 +27,14 @@ jobs:
         run: |
           pip install -r requirements.txt
           playwright install chromium --with-deps
+          sudo apt-get install -y xvfb
 
       - name: Run scraper
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RC_COOKIES: ${{ secrets.RC_COOKIES }}
           OUTPUT_FILE: listings.json
-        run: python scraper.py
+        run: xvfb-run --auto-servernum python3 scraper.py
 
       - name: Commit updated listings
         run: |
