@@ -1,6 +1,27 @@
 {
-  "updated": "2026-05-27T19:41:04.488762+00:00",
-  "duration_seconds": 38,
-  "count": 0,
-  "listings": []
+  "updated": "2026-05-28T09:49:38.165803+00:00",
+  "duration_seconds": 162,
+  "count": 2,
+  "listings": [
+    {
+      "source": "commercialrealestate.com.au",
+      "url": "https://www.commercialrealestate.com.au/property/89-dunlop-street-mortlake-vic-3272-2020207527",
+      "address": "89 Dunlop Street Mortlake VIC 3272",
+      "price_str": "$285,000",
+      "price_val": 285000,
+      "yield_pct": 7.3,
+      "description": "Address: 89 Dunlop Street Mortlake VIC 3272\nPrice: $285,000 (GST na)\nHeadline: 7.3% RENTAL YIELD - COMMERCIAL INVESTMENT\nDescription: This ideally located commercial space boasts a generous land size of 559m\u00b2 and a versatile building size of 245m\u00b2. It occupies a prominent corner site at Dunlop and Webster Streets in the thriving...\n\nSkip to content . Contact Support 1300 799 109 Domain Allhomes Co",
+      "reason": "All hard rules pass: tenanted with existing lease, price $285,000 \u2264 $500k, explicit 7.3% rental yield \u2265 6%, no developer guarantee, and not in a mining town."
+    },
+    {
+      "source": "commercialrealestate.com.au",
+      "url": "https://www.commercialrealestate.com.au/property/4-6-knott-place-mudgee-nsw-2850-2019824190",
+      "address": "4/6 Knott Place Mudgee NSW 2850",
+      "price_str": "$340,000 - $390,000",
+      "price_val": 340000,
+      "yield_pct": 6,
+      "description": "Address: 4/6 Knott Place Mudgee NSW 2850\nPrice: $340,000 - $390,000\nHeadline: SECURE 6% RETURN ON A PHENOMENAL COMMERCIAL UNIT\nDescription: Seize this rare opportunity to own a brand-new commercial unit in a high-growth location just 5 minutes from Mudgee. This tenanted investment is already delivering a solid 6% yield, secured by a...\n\nSkip to content . Contact Support 1300 799 109 Domain Allhome",
+      "reason": "Tenanted commercial property with explicit 6% yield, price range within $500k, not a mining town, and not a developer guarantee."
+    }
+  ]
 }

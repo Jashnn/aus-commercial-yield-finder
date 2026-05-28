@@ -15,12 +15,16 @@ import asyncio
 import json
 import os
 import re
+import subprocess
 import time
 from datetime import datetime, timezone
 from typing import Optional
 
 from anthropic import Anthropic
 from playwright.async_api import async_playwright, Page
+
+CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+CDP_PORT = 9222
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -189,12 +193,62 @@ async def scrape_cre_html(page: Page) -> list[dict]:
     return all_raw
 
 
-# ─── RC: keyword search ───────────────────────────────────────────────────────
+# ─── Chrome CDP launcher (bypasses RC bot detection) ─────────────────────────
 
-async def scrape_rc(page: Page) -> list[dict]:
+async def get_cdp_page(pw):
+    """
+    Try to connect to an existing Chrome debug session, or auto-launch Chrome
+    with remote debugging enabled. Returns (page, chrome_proc) where chrome_proc
+    is the subprocess if we launched it (so caller can close it), or None if
+    we reused an existing session.
+    """
+    # 1. Try existing Chrome debug session
+    try:
+        browser = await pw.chromium.connect_over_cdp(f"ws://localhost:{CDP_PORT}")
+        ctx = browser.contexts[0] if browser.contexts else await browser.new_context()
+        page = await ctx.new_page()
+        print("  → Reusing existing Chrome debug session")
+        return page, None
+    except Exception:
+        pass
+
+    # 2. Launch Chrome with remote debugging (uses real profile = real cookies)
+    if not HEADLESS and os.path.exists(CHROME_PATH):
+        try:
+            proc = subprocess.Popen([
+                CHROME_PATH,
+                f"--remote-debugging-port={CDP_PORT}",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            await asyncio.sleep(3)
+            browser = await pw.chromium.connect_over_cdp(f"ws://localhost:{CDP_PORT}")
+            ctx = await browser.new_context()
+            page = await ctx.new_page()
+            print("  → Launched Chrome with debug port")
+            return page, proc
+        except Exception as e:
+            print(f"  → Chrome launch failed: {e}")
+
+    return None, None
+
+
+# ─── RC: scrape via real Chrome CDP ──────────────────────────────────────────
+
+async def scrape_rc(pw) -> list[dict]:
+    print("→ realcommercial.com.au (via Chrome CDP)")
     all_raw: list[dict] = []
+
+    if HEADLESS:
+        print("  ⚠  Skipping RC in CI/headless mode — requires real Chrome")
+        return all_raw
+
+    page, chrome_proc = await get_cdp_page(pw)
+    if not page:
+        print("  ⚠  Could not connect to Chrome — skipping RC")
+        return all_raw
+
     seen_urls: set[str] = set()
-    print("→ realcommercial.com.au")
 
     for label, base_url in RC_INVEST_QUERIES:
         current_url = base_url
@@ -205,8 +259,8 @@ async def scrape_rc(page: Page) -> list[dict]:
         while page_num <= max_pages:
             print(f"    {label} page {page_num}")
             try:
-                await page.goto(current_url, wait_until="domcontentloaded", timeout=60_000)
-                await asyncio.sleep(3)
+                await page.goto(current_url, wait_until="load", timeout=45_000)
+                await asyncio.sleep(4)
             except Exception as e:
                 print(f"    [error]: {e}")
                 break
@@ -245,8 +299,7 @@ async def scrape_rc(page: Page) -> list[dict]:
                 href, text = card["href"], card["text"]
                 if href and href not in seen_urls and not is_mining_town(text):
                     seen_urls.add(href)
-                    all_raw.append({"url": href, "text": text,
-                                     "source": "realcommercial.com.au"})
+                    all_raw.append({"url": href, "text": text, "source": "realcommercial.com.au"})
                     new_this_page += 1
 
             if new_this_page == 0:
@@ -275,8 +328,12 @@ async def scrape_rc(page: Page) -> list[dict]:
                 current_url = re.sub(r"&pg=\d+", "", current_url) + f"&pg={page_num + 1}"
                 page_num += 1
 
+    await page.close()
+    if chrome_proc:
+        chrome_proc.terminate()
+
     if not all_raw:
-        print("  ⚠  RC returned 0 listings — likely bot-blocked in headless mode")
+        print("  ⚠  RC returned 0 — /invest/ page may still be blocked")
     else:
         print(f"  RC unique listings: {len(all_raw)}")
     return all_raw
@@ -403,8 +460,8 @@ async def main():
         )
         page = await ctx.new_page()
 
-        # ── RC ────────────────────────────────────────────────────────────
-        rc_raw = await scrape_rc(page)
+        # ── RC via real Chrome CDP ────────────────────────────────────────
+        rc_raw = await scrape_rc(pw)
 
         # ── CRE: GraphQL if non-headless, HTML fallback if headless ───────
         if not HEADLESS:
