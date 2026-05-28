@@ -29,19 +29,21 @@ if [ ! -f "$REPO_DIR/.env" ]; then
   echo ""
 fi
 
-# ── 3. LaunchAgent ──────────────────────────────────────────────────────────
-echo "→ Installing LaunchAgent…"
+# ── 3. LaunchAgents ─────────────────────────────────────────────────────────
+echo "→ Installing LaunchAgents…"
 mkdir -p "$LAUNCH_AGENTS"
+chmod +x "$REPO_DIR/start-server.sh" "$REPO_DIR/start-scraper.sh"
 
-# Patch REPO_PATH placeholder in plist
-sed "s|REPO_PATH|$REPO_DIR|g" "$PLIST_SRC" > "$PLIST_DST"
+for PLIST_NAME in "com.jashan.yield-finder-server" "com.jashan.yield-finder-scraper"; do
+  PLIST_SRC="$REPO_DIR/$PLIST_NAME.plist"
+  PLIST_DST="$LAUNCH_AGENTS/$PLIST_NAME.plist"
+  sed "s|REPO_PATH|$REPO_DIR|g" "$PLIST_SRC" > "$PLIST_DST"
+  launchctl unload "$PLIST_DST" 2>/dev/null || true
+  launchctl load "$PLIST_DST"
+done
 
-# Unload if already loaded (ignore errors)
-launchctl unload "$PLIST_DST" 2>/dev/null || true
-
-# Load it
-launchctl load "$PLIST_DST"
-echo "   ✓ LaunchAgent installed — server will start on every login"
+echo "   ✓ Server LaunchAgent installed — starts on every login"
+echo "   ✓ Scraper LaunchAgent installed — runs daily at 7:00 AM"
 
 # ── 4. Open dashboard ────────────────────────────────────────────────────────
 sleep 1
