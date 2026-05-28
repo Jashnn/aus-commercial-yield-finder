@@ -15,7 +15,6 @@ import asyncio
 import json
 import os
 import re
-import subprocess
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -23,8 +22,8 @@ from typing import Optional
 from anthropic import Anthropic
 from playwright.async_api import async_playwright, Page
 
-CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-CDP_PORT = 9222
+COOKIE_FILE = os.path.join(os.path.dirname(__file__), "rc_cookies.json")
+COOKIE_MAX_AGE_DAYS = 3
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -193,60 +192,80 @@ async def scrape_cre_html(page: Page) -> list[dict]:
     return all_raw
 
 
-# ─── Chrome CDP launcher (bypasses RC bot detection) ─────────────────────────
+# ─── RC cookie management ────────────────────────────────────────────────────
 
-async def get_cdp_page(pw):
-    """
-    Try to connect to an existing Chrome debug session, or auto-launch Chrome
-    with remote debugging enabled. Returns (page, chrome_proc) where chrome_proc
-    is the subprocess if we launched it (so caller can close it), or None if
-    we reused an existing session.
-    """
-    # 1. Try existing Chrome debug session
+def refresh_rc_cookies() -> list[dict]:
+    """Read RC cookies directly from Chrome's local profile and save to file."""
     try:
-        browser = await pw.chromium.connect_over_cdp(f"ws://localhost:{CDP_PORT}")
-        ctx = browser.contexts[0] if browser.contexts else await browser.new_context()
-        page = await ctx.new_page()
-        print("  → Reusing existing Chrome debug session")
-        return page, None
-    except Exception:
-        pass
-
-    # 2. Launch Chrome with remote debugging (uses real profile = real cookies)
-    if not HEADLESS and os.path.exists(CHROME_PATH):
-        try:
-            proc = subprocess.Popen([
-                CHROME_PATH,
-                f"--remote-debugging-port={CDP_PORT}",
-                "--no-first-run",
-                "--no-default-browser-check",
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            await asyncio.sleep(3)
-            browser = await pw.chromium.connect_over_cdp(f"ws://localhost:{CDP_PORT}")
-            ctx = await browser.new_context()
-            page = await ctx.new_page()
-            print("  → Launched Chrome with debug port")
-            return page, proc
-        except Exception as e:
-            print(f"  → Chrome launch failed: {e}")
-
-    return None, None
+        import browser_cookie3
+        jar = browser_cookie3.chrome(domain_name=".realcommercial.com.au")
+        cookies = []
+        for c in jar:
+            domain = c.domain if c.domain.startswith(".") else f".{c.domain}"
+            cookies.append({
+                "name": c.name,
+                "value": c.value,
+                "domain": domain,
+                "path": c.path or "/",
+                "secure": bool(c.secure),
+                "httpOnly": False,
+                "sameSite": "None",
+            })
+        if cookies:
+            with open(COOKIE_FILE, "w") as f:
+                json.dump({"saved_at": datetime.now().isoformat(), "cookies": cookies}, f)
+            print(f"  → Refreshed {len(cookies)} RC cookies from Chrome")
+        return cookies
+    except ImportError:
+        print("  ⚠  browser_cookie3 not installed — run: pip3 install browser_cookie3")
+    except Exception as e:
+        print(f"  → Could not read Chrome cookies: {e}")
+    return []
 
 
-# ─── RC: scrape via real Chrome CDP ──────────────────────────────────────────
+def load_rc_cookies() -> list[dict]:
+    """
+    Load RC cookies for Playwright injection.
+    Always tries Chrome first (auto-refresh), falls back to saved file.
+    Warns when saved cookies exceed COOKIE_MAX_AGE_DAYS.
+    """
+    fresh = refresh_rc_cookies()
+    if fresh:
+        return fresh
 
-async def scrape_rc(pw) -> list[dict]:
-    print("→ realcommercial.com.au (via Chrome CDP)")
+    if not os.path.exists(COOKIE_FILE):
+        print("  ⚠  No RC cookies — open realcommercial.com.au in Chrome at least once to enable RC scraping")
+        return []
+
+    with open(COOKIE_FILE) as f:
+        data = json.load(f)
+
+    age_days = (datetime.now() - datetime.fromisoformat(data["saved_at"])).days
+    cookies = data.get("cookies", [])
+
+    if age_days > COOKIE_MAX_AGE_DAYS:
+        print(f"  ⚠  RC cookies are {age_days}d old (limit {COOKIE_MAX_AGE_DAYS}d) — open realcommercial.com.au in Chrome to refresh")
+    else:
+        print(f"  → Using saved RC cookies ({age_days}d old)")
+
+    return cookies
+
+
+# ─── RC: scrape via cookie injection ─────────────────────────────────────────
+
+async def scrape_rc(page: Page) -> list[dict]:
+    print("→ realcommercial.com.au (cookie injection)")
     all_raw: list[dict] = []
 
     if HEADLESS:
-        print("  ⚠  Skipping RC in CI/headless mode — requires real Chrome")
+        print("  ⚠  Skipping RC in CI mode — cookies only available locally")
         return all_raw
 
-    page, chrome_proc = await get_cdp_page(pw)
-    if not page:
-        print("  ⚠  Could not connect to Chrome — skipping RC")
+    cookies = load_rc_cookies()
+    if not cookies:
         return all_raw
+
+    await page.context.add_cookies(cookies)
 
     seen_urls: set[str] = set()
 
@@ -263,6 +282,11 @@ async def scrape_rc(pw) -> list[dict]:
                 await asyncio.sleep(4)
             except Exception as e:
                 print(f"    [error]: {e}")
+                break
+
+            title = await page.title()
+            if not title:
+                print("    ⚠  Blank page — cookies may be stale, open realcommercial.com.au in Chrome")
                 break
 
             if page_num == 1:
@@ -328,12 +352,8 @@ async def scrape_rc(pw) -> list[dict]:
                 current_url = re.sub(r"&pg=\d+", "", current_url) + f"&pg={page_num + 1}"
                 page_num += 1
 
-    await page.close()
-    if chrome_proc:
-        chrome_proc.terminate()
-
     if not all_raw:
-        print("  ⚠  RC returned 0 — /invest/ page may still be blocked")
+        print("  ⚠  RC returned 0 listings")
     else:
         print(f"  RC unique listings: {len(all_raw)}")
     return all_raw
@@ -460,8 +480,8 @@ async def main():
         )
         page = await ctx.new_page()
 
-        # ── RC via real Chrome CDP ────────────────────────────────────────
-        rc_raw = await scrape_rc(pw)
+        # ── RC via cookie injection ───────────────────────────────────────
+        rc_raw = await scrape_rc(page)
 
         # ── CRE: GraphQL if non-headless, HTML fallback if headless ───────
         if not HEADLESS:

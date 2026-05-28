@@ -1,5 +1,6 @@
 # Credentials — never commit
 .env
+rc_cookies.json
 
 # Python
 __pycache__/
