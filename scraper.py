@@ -40,8 +40,8 @@ MINING_TOWNS = {
 HEADLESS = bool(os.environ.get("CI"))
 
 RC_INVEST_QUERIES = [
-    ("yield7", "https://www.realcommercial.com.au/invest/?maxPrice=500000&yieldValue=7"),
-    ("yield6", "https://www.realcommercial.com.au/invest/?maxPrice=500000&yieldValue=6"),
+    ("yield8", "https://www.realcommercial.com.au/invest/?includePropertiesWithin=includesurrounding&maxPrice=500000&yieldValue=8&yieldOnlyForUnpricedListings=true&activeSort=calculatedYield-desc"),
+    ("yield6", "https://www.realcommercial.com.au/invest/?includePropertiesWithin=includesurrounding&maxPrice=500000&yieldValue=6&yieldOnlyForUnpricedListings=true&activeSort=calculatedYield-desc"),
 ]
 
 CRE_KEYWORDS = ["yield", "return", "%25+pa"]
@@ -194,11 +194,28 @@ async def scrape_cre_html(page: Page) -> list[dict]:
 
 # ─── RC cookie management ────────────────────────────────────────────────────
 
+def _find_active_chrome_profile(chrome_base: str) -> Optional[str]:
+    """Return the Chrome profile directory that has the most recent activity."""
+    best, best_ts = None, 0
+    for entry in os.listdir(chrome_base):
+        db = os.path.join(chrome_base, entry, "Cookies")
+        if not os.path.exists(db):
+            continue
+        ts = os.path.getmtime(db)
+        if ts > best_ts:
+            best_ts = ts
+            best = entry
+    return best
+
+
 def refresh_rc_cookies() -> list[dict]:
     """Read RC cookies directly from Chrome's local profile and save to file."""
     try:
         import browser_cookie3
-        jar = browser_cookie3.chrome(domain_name=".realcommercial.com.au")
+        # Use the active Chrome profile (not the Default profile which may be inactive)
+        chrome_base = os.path.expanduser("~/Library/Application Support/Google/Chrome")
+        profile = _find_active_chrome_profile(chrome_base)
+        jar = browser_cookie3.chrome(domain_name=".realcommercial.com.au", cookie_file=os.path.join(chrome_base, profile, "Cookies") if profile else None)
         cookies = []
         for c in jar:
             domain = c.domain if c.domain.startswith(".") else f".{c.domain}"
@@ -291,10 +308,17 @@ async def scrape_rc(page: Page) -> list[dict]:
 
             if page_num == 1:
                 try:
-                    h1 = await page.wait_for_selector("h1", timeout=5_000)
-                    h1_text = await h1.inner_text()
-                    count_m = re.search(r"(\d+)", h1_text)
-                    total = int(count_m.group(1)) if count_m else 0
+                    # Look for result count in h1 or dedicated result-count element
+                    count_text = await page.evaluate("""
+                        () => {
+                            const el = document.querySelector('[class*="result-count"], [class*="resultCount"], h1')
+                            return el ? el.innerText : '';
+                        }
+                    """)
+                    count_m = re.search(r"(\d+)\s*result", count_text, re.IGNORECASE)
+                    if not count_m:
+                        count_m = re.search(r"(\d+)", count_text)
+                    total = int(count_m.group(1)) if count_m else 999
                     print(f"    → {total} results")
                     if total == 0:
                         break

@@ -1,8 +1,28 @@
 {
-  "updated": "2026-05-28T10:01:55.263714+00:00",
-  "duration_seconds": 188,
-  "count": 2,
+  "updated": "2026-05-28T10:30:39.890851+00:00",
+  "duration_seconds": 224,
+  "count": 4,
   "listings": [
+    {
+      "source": "realcommercial.com.au",
+      "url": "https://www.realcommercial.com.au/for-sale/property-cooktown-post-office-building-123-charlotte-street-cooktown-qld-4895-505114548",
+      "address": "123 Charlotte Street, Cooktown, QLD 4895",
+      "price_str": "$470,000",
+      "price_val": 470000,
+      "yield_pct": 7.8,
+      "description": "Secure a landmark Cooktown commercial holding.\n\nCooktown Post Office Building, 123 Charlotte Street\n\nCooktown, QLD 4895\n\n273 m\u00b2\nShops & Retail \u2022 Offices \u2022 Other\n VIEW\n\n+8 more Floor Cooktown Post Office Building, 123 Charlotte Street, Cooktown, QLD 4895 Shops & Retail \u2022 Offices \u2022 Other Price information Sale $470,000 Key property information Land area 1290 m\u00b2 Floor area 273 m\u00b2 Parking info Street ",
+      "reason": "Property meets all hard rules: tenanted (Cooktown Post Office), price $470,000 (under $500k), explicit yield of 7.8% p.a. (above 6%), not a developer guarantee, and Cooktown is not a mining town."
+    },
+    {
+      "source": "realcommercial.com.au",
+      "url": "https://www.realcommercial.com.au/for-sale/property-20-90-frances-bay-drive-stuart-park-nt-0820-505087888",
+      "address": "20/90 Frances Bay Drive, Stuart Park, NT 0820",
+      "price_str": "$281,387 AUD",
+      "price_val": 281387,
+      "yield_pct": 7.5,
+      "description": "Leased Investment - 7.5% nett return\n\n20/90 Frances Bay Drive\n\nStuart Park, NT 0820\n\n82 m\u00b2\nOffices\n VIEW\n\n+2 more 20/90 Frances Bay Drive, Stuart Park, NT 0820 Offices Price information Sale $281,387 Key property information Floor area 82 m\u00b2 Property extent Whole Municipality City of Darwin Tenure type Tenanted Investment Return 7.5% p.a. Tenanted Investment Details Occupancy Fully Leased Est. Inc",
+      "reason": "All hard rules pass: tenanted (Verdant Minerals, 10+ years, lease to Aug 2027), price $281,387 \u2264 $500k, yield 7.5% p.a. nett explicitly stated and \u2265 6%, no developer guarantee, not in a mining town."
+    },
     {
       "source": "commercialrealestate.com.au",
       "url": "https://www.commercialrealestate.com.au/property/89-dunlop-street-mortlake-vic-3272-2020207527",
@@ -11,7 +31,7 @@
       "price_val": 285000,
       "yield_pct": 7.3,
       "description": "Address: 89 Dunlop Street Mortlake VIC 3272\nPrice: $285,000 (GST na)\nHeadline: 7.3% RENTAL YIELD - COMMERCIAL INVESTMENT\nDescription: This ideally located commercial space boasts a generous land size of 559m\u00b2 and a versatile building size of 245m\u00b2. It occupies a prominent corner site at Dunlop and Webster Streets in the thriving...\n\nSkip to content . Contact Support 1300 799 109 Domain Allhomes Co",
-      "reason": "Tenanted commercial property with explicit 7.3% rental yield, priced at $285,000 (under $500k), not in a mining town, and not a developer guarantee."
+      "reason": "All hard rules pass: tenanted with lease, price $285,000 (under $500k), explicit 7.3% rental yield (above 6%), not a developer guarantee, and not in a mining town."
     },
     {
       "source": "commercialrealestate.com.au",
@@ -21,7 +41,7 @@
       "price_val": 340000,
       "yield_pct": 6,
       "description": "Address: 4/6 Knott Place Mudgee NSW 2850\nPrice: $340,000 - $390,000\nHeadline: SECURE 6% RETURN ON A PHENOMENAL COMMERCIAL UNIT\nDescription: Seize this rare opportunity to own a brand-new commercial unit in a high-growth location just 5 minutes from Mudgee. This tenanted investment is already delivering a solid 6% yield, secured by a...\n\nSkip to content . Contact Support 1300 799 109 Domain Allhome",
-      "reason": "Tenanted commercial property with explicit 6% yield stated, price range within $500k limit, not in a mining town, and no developer guarantee mentioned."
+      "reason": "Tenanted property with explicit 6% yield, price range within $500k cap, not a mining town, and not a developer guarantee."
     }
   ]
 }
